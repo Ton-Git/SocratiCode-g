@@ -137,6 +137,7 @@ export const ENTRY_POINT_NAMES: Record<string, Set<string>> = {
   swift: new Set(["main"]),
   ruby: new Set(["main"]),
   php: new Set(["main"]),
+  cobol: new Set(["MAIN", "MAIN-PROGRAM", "0000-MAIN"]),
 };
 
 // ── File type configuration ─────────────────────────────────────────────
@@ -180,6 +181,8 @@ export const SUPPORTED_EXTENSIONS = new Set([
   ".r", ".R",
   // Dockerfile
   ".dockerfile",
+  // COBOL
+  ".cbl", ".cob", ".cpy", ".cobol"
 ]);
 
 // ── Extra extensions (user-configurable) ─────────────────────────────────
@@ -251,6 +254,7 @@ export function getLanguageFromExtension(ext: string): string {
     ".lua": "lua",
     ".r": "r", ".R": "r",
     ".dockerfile": "dockerfile",
+    ".cbl": "cobol", ".cob": "cobol", ".cpy": "cobol", ".cobol": "cobol",
   };
   return map[ext] || "plaintext";
 }

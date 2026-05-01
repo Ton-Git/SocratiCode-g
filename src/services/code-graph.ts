@@ -509,6 +509,7 @@ export function getAstGrepLang(ext: string): Lang | string | null {
     ".swift": "swift",
     ".dart": "dart",
     ".lua": "lua",
+    ".cbl": "cobol", ".cob": "cobol", ".cpy": "cobol", ".cobol": "cobol",
     ".sh": "bash", ".bash": "bash", ".zsh": "bash",
     // Composite languages (parsed via HTML + script re-parse)
     ".svelte": "svelte",

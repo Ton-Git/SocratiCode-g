@@ -352,6 +352,35 @@ export function resolveImport(
       return resolveRelativePath(luaPath, projectPath, projectPath, fileSet, [".lua"]);
     }
 
+    case "cobol": {
+      const cobolExts = [".cpy", ".cbl", ".cob", ".cobol"];
+      // Quoted path: COPY "member.cpy"
+      if (moduleSpecifier.includes(".") || moduleSpecifier.includes("/") || moduleSpecifier.includes("\\")) {
+        return resolveRelativePath(moduleSpecifier, sourceDir, projectPath, fileSet, [...cobolExts, ".sql"]);
+      }
+      // Bare identifier: COPY member → search for member.cpy, member.cbl etc.
+      // 1. Same directory as source file
+      const sameDir = resolveRelativePath(moduleSpecifier, sourceDir, projectPath, fileSet, cobolExts);
+      if (sameDir) return sameDir;
+      // 2. Common copybook directories
+      const copybookDirs = ["copybook", "copy", "cpy", "include", "src/copy"];
+      for (const dir of copybookDirs) {
+        const inDir = resolveRelativePath(
+          path.join(dir, moduleSpecifier), projectPath, projectPath, fileSet, cobolExts,
+        );
+        if (inDir) return inDir;
+      }
+      // 3. Project-wide search
+      const projectWide = resolveRelativePath(moduleSpecifier, projectPath, projectPath, fileSet, cobolExts);
+      if (projectWide) return projectWide;
+      // 4. EXEC SQL INCLUDE → also search .sql files
+      const sqlDir = resolveRelativePath(
+        path.join("sql", moduleSpecifier), projectPath, projectPath, fileSet, [...cobolExts, ".sql"],
+      );
+      if (sqlDir) return sqlDir;
+      return null;
+    }
+
     default:
       return null;
   }
@@ -396,6 +425,8 @@ function isExternalModule(spec: string, language: string): boolean {
       // Common Lua stdlib/C modules
       return ["string", "table", "math", "io", "os", "coroutine",
               "debug", "package", "utf8", "bit32"].includes(spec.split(".")[0]);
+    case "cobol":
+      return false; // COBOL COPY/INCLUDE are always project-local
     default:
       return false;
   }

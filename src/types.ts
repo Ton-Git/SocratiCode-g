@@ -89,7 +89,10 @@ export type SymbolKind =
   | "enum"
   | "module"
   | "struct"
-  | "variable";
+  | "variable"
+  | "program"     // COBOL PROGRAM-ID
+  | "section"     // COBOL SECTION
+  | "paragraph";  // COBOL PARAGRAPH
 
 /** A single symbol (definition) extracted from source code */
 export interface SymbolNode {

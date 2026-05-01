@@ -126,6 +126,9 @@ export function extractSymbolsAndCalls(
     if (langKey === "bash") {
       return extractFromBash(source, relativePath, language, moduleSymbol);
     }
+    if (langKey === "cobol") {
+      return extractFromCobol(source, relativePath, language, moduleSymbol);
+    }
     // Dart, Lua, Svelte, Vue and others fall through to the regex fallback.
     return extractFromRegex(source, relativePath, language, moduleSymbol);
   } catch (err) {
@@ -896,6 +899,172 @@ function extractFromBash(
       calleeName: name, callSite: { file, line: callLine },
     });
   }
+  return { symbols, rawCalls };
+}
+
+// ── COBOL ────────────────────────────────────────────────────────────────
+
+/** COBOL reserved words that should NOT be treated as paragraph/section names. */
+const COBOL_RESERVED = new Set([
+  "ACCEPT", "ADD", "ALTER", "AND", "ARE", "AT",
+  "CALL", "CANCEL", "CLOSE", "COMPUTE", "CONTINUE",
+  "COPY", "DELETE", "DISPLAY", "DIVIDE", "ELSE",
+  "END-ADD", "END-CALL", "END-COMPUTE", "END-DELETE",
+  "END-DIVIDE", "END-EVALUATE", "END-IF", "END-MULTIPLY",
+  "END-PERFORM", "END-READ", "END-RETURN", "END-REWRITE",
+  "END-SEARCH", "END-START", "END-STRING", "END-SUBTRACT",
+  "END-UNSTRING", "END-WRITE", "ENTRY", "EVALUATE",
+  "EXEC", "EXIT", "FD", "FILE", "FROM", "GO", "GOBACK",
+  "IF", "IN", "INITIALIZE", "INSPECT", "INTO", "IS",
+  "MERGE", "MOVE", "MULTIPLY", "NOT", "OF", "ON",
+  "OPEN", "OR", "PERFORM", "READ", "REDEFINES", "RELEASE",
+  "REPLACE", "RETURN", "REWRITE", "SEARCH", "SELECT",
+  "SET", "SORT", "START", "STOP", "STRING", "SUBTRACT",
+  "THEN", "TO", "UNSTRING", "UNTIL", "USING", "VARYING",
+  "WHEN", "WITH", "WORKING-STORAGE", "WRITE",
+  // Division headers
+  "IDENTIFICATION", "ENVIRONMENT", "DATA", "PROCEDURE",
+  "DIVISION", "SECTION",
+]);
+
+function extractFromCobol(
+  source: string,
+  file: string,
+  language: string,
+  moduleSym: SymbolNode,
+): ExtractedSymbols {
+  const symbols: SymbolNode[] = [moduleSym];
+  const scopes: ScopeFrame[] = [];
+  const lines = source.split("\n");
+  const rawCalls: ExtractedSymbols["rawCalls"] = [];
+
+  let currentProgram = "";
+
+  // 1. PROGRAM-ID extraction
+  //    PROGRAM-ID. program-name. / PROGRAM-ID IS program-name.
+  const programIdRegex = /PROGRAM-ID\s*\.?\s*(?:IS\s+)?(\w+)/gi;
+  for (const match of source.matchAll(programIdRegex)) {
+    const name = match[1];
+    const lineNum = source.substring(0, match.index!).split("\n").length;
+    currentProgram = name;
+    const sym: SymbolNode = {
+      id: makeId(file, name, lineNum),
+      name,
+      qualifiedName: name,
+      kind: "program",
+      file,
+      line: lineNum,
+      endLine: lines.length,
+      language,
+    };
+    symbols.push(sym);
+    scopes.push({ name, startLine: lineNum, endLine: lines.length, symbolId: sym.id });
+  }
+
+  // 2. SECTION extraction
+  //    section-name SECTION.
+  const sectionRegex = /^\s{0,6}([A-Za-z][\w-]*)\s+SECTION\s*\./gim;
+  for (const match of source.matchAll(sectionRegex)) {
+    const name = match[1];
+    if (COBOL_RESERVED.has(name.toUpperCase())) continue;
+    const lineNum = source.substring(0, match.index!).split("\n").length;
+    // Find end of section: next SECTION or end of file
+    let endLine = lines.length;
+    for (let i = lineNum; i < lines.length; i++) {
+      if (i > lineNum && /^\s{0,6}[A-Za-z][\w-]*\s+SECTION\s*\./i.test(lines[i]!)) {
+        endLine = i;
+        break;
+      }
+    }
+    const qname = currentProgram ? `${currentProgram}.${name}` : name;
+    const sym: SymbolNode = {
+      id: makeId(file, qname, lineNum),
+      name,
+      qualifiedName: qname,
+      kind: "section",
+      file,
+      line: lineNum,
+      endLine,
+      language,
+    };
+    symbols.push(sym);
+    scopes.push({ name, startLine: lineNum, endLine, symbolId: sym.id });
+  }
+
+  // 3. PARAGRAPH extraction
+  //    Paragraph: a line starting with a word (area A, col 8-11) followed by a period.
+  //    Only match in the PROCEDURE DIVISION to avoid false positives from data items.
+  //    First find where PROCEDURE DIVISION starts
+  let procDivStart = 0;
+  for (let i = 0; i < lines.length; i++) {
+    if (/^\s{0,6}PROCEDURE\s+DIVISION/i.test(lines[i]!)) {
+      procDivStart = i + 1;
+      break;
+    }
+  }
+  if (procDivStart > 0) {
+    const paragraphRegex = /^\s{0,6}([A-Za-z][\w-]*)\s*\.\s*$/;
+    for (let i = procDivStart; i < lines.length; i++) {
+      const m = lines[i]!.match(paragraphRegex);
+      if (!m) continue;
+      const name = m[1];
+      if (COBOL_RESERVED.has(name.toUpperCase())) continue;
+      // Skip if already captured as a section
+      if (symbols.some((s) => s.name === name && s.kind === "section")) continue;
+      const lineNum = i + 1;
+      // Find end: next paragraph/section at same level
+      let endLine = lineNum + 1;
+      for (let j = i + 1; j < lines.length; j++) {
+        if (paragraphRegex.test(lines[j]!) || /^\s{0,6}[A-Za-z][\w-]*\s+SECTION\s*\./i.test(lines[j]!)) {
+          endLine = j;
+          break;
+        }
+      }
+      const qname = currentProgram ? `${currentProgram}.${name}` : name;
+      const sym: SymbolNode = {
+        id: makeId(file, qname, lineNum),
+        name,
+        qualifiedName: qname,
+        kind: "paragraph",
+        file,
+        line: lineNum,
+        endLine,
+        language,
+      };
+      symbols.push(sym);
+      scopes.push({ name, startLine: lineNum, endLine, symbolId: sym.id });
+    }
+  }
+
+  // 4. PERFORM call detection
+  //    PERFORM paragraph-name / PERFORM section-name
+  //    PERFORM name THRU name2 / PERFORM name UNTIL ...
+  const performRegex = /PERFORM\s+([A-Za-z][\w-]*)/gi;
+  for (const match of source.matchAll(performRegex)) {
+    const calleeName = match[1];
+    if (COBOL_RESERVED.has(calleeName.toUpperCase())) continue;
+    const lineNum = source.substring(0, match.index!).split("\n").length;
+    rawCalls.push({
+      callerId: findCallerId(scopes, lineNum, moduleSym.id),
+      calleeName,
+      callSite: { file, line: lineNum },
+    });
+  }
+
+  // 5. CALL statement detection (inter-program calls)
+  //    CALL "program-name" / CALL literal
+  const callRegex = /CALL\s+["']?(\w+)["']?/gi;
+  for (const match of source.matchAll(callRegex)) {
+    const calleeName = match[1];
+    if (calleeName.toUpperCase() === "CALL") continue;
+    const lineNum = source.substring(0, match.index!).split("\n").length;
+    rawCalls.push({
+      callerId: findCallerId(scopes, lineNum, moduleSym.id),
+      calleeName,
+      callSite: { file, line: lineNum },
+    });
+  }
+
   return { symbols, rawCalls };
 }
 

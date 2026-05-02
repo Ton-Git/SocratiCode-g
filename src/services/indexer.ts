@@ -25,6 +25,7 @@ import { generateEmbeddings, prepareDocumentText } from "./embeddings.js";
 import { createIgnoreFilter, shouldIgnore } from "./ignore.js";
 import { acquireProjectLock, releaseProjectLock } from "./lock.js";
 import { logger } from "./logger.js";
+import { parseCobolComments } from "./cobol-utils.js";
 import {
   deleteCollection,
   deleteFileChunks,
@@ -439,8 +440,9 @@ export function chunkFileContent(
   }
 
   // Small files: single chunk regardless of language
+  let chunks: FileChunk[];
   if (lines.length <= CHUNK_SIZE) {
-    return applyCharCap([{
+    chunks = applyCharCap([{
       id: chunkId(relativePath, 1),
       filePath,
       relativePath,
@@ -450,18 +452,124 @@ export function chunkFileContent(
       language,
       type: "code",
     }]);
+  } else {
+    // Try AST-aware chunking for supported languages
+    const astLang = getAstGrepLang(ext);
+    const regions = astLang ? findAstBoundaries(content, astLang) : [];
+
+    if (regions.length > 0) {
+      chunks = applyCharCap(chunkByAstRegions(filePath, relativePath, lines, language, regions));
+    } else {
+      // Fallback: line-based chunking
+      chunks = applyCharCap(chunkByLines(filePath, relativePath, lines, language));
+    }
   }
 
-  // Try AST-aware chunking for supported languages
-  const astLang = getAstGrepLang(ext);
-  const regions = astLang ? findAstBoundaries(content, astLang) : [];
-
-  if (regions.length > 0) {
-    return applyCharCap(chunkByAstRegions(filePath, relativePath, lines, language, regions));
+  // COBOL: append comment-only chunks for searchable comment text
+  if (language === "cobol") {
+    try {
+      const commentChunks = buildCobolCommentChunks(filePath, relativePath, content, language);
+      chunks = applyCharCap([...chunks, ...commentChunks]);
+    } catch (err) {
+      logger.debug("COBOL comment chunking failed (continuing without comments)", {
+        relativePath,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 
-  // Fallback: line-based chunking
-  return applyCharCap(chunkByLines(filePath, relativePath, lines, language));
+  return chunks;
+}
+
+/**
+ * Build comment-only chunks from COBOL source.
+ *
+ * Groups consecutive comment lines (allowing one blank-line gap) into chunks.
+ * These chunks get indexed alongside code chunks, making COBOL comments
+ * searchable via semantic/vector search.
+ */
+function buildCobolCommentChunks(
+  filePath: string,
+  relativePath: string,
+  content: string,
+  language: string,
+): FileChunk[] {
+  const { comments } = parseCobolComments(content);
+  if (comments.length === 0) return [];
+
+  // Step 1: Group comments into blocks (consecutive lines, allowing 1 blank-line gap)
+  interface CommentGroup {
+    comments: typeof comments;
+    startLine: number;
+    endLine: number;
+  }
+  const groups: CommentGroup[] = [];
+  let currentGroup: CommentGroup | null = null;
+  const allLines = content.split("\n");
+
+  for (const c of comments) {
+    if (c.text.length === 0) continue; // skip empty comments
+
+    if (currentGroup && c.line <= currentGroup.endLine + 2) {
+      // Only extend if the gap lines are all blank
+      let gapIsBlank = true;
+      for (let gl = currentGroup.endLine + 1; gl < c.line; gl++) {
+        if (allLines[gl - 1]?.trim() !== "") { gapIsBlank = false; break; }
+      }
+      if (gapIsBlank) {
+        // Extend current group (adjacent or blank-line-separated)
+        currentGroup.comments.push(c);
+        currentGroup.endLine = c.line;
+      } else {
+        // Non-blank gap — start a new group
+        currentGroup = { comments: [c], startLine: c.line, endLine: c.line };
+        groups.push(currentGroup);
+      }
+    } else {
+      // Start a new group
+      currentGroup = { comments: [c], startLine: c.line, endLine: c.line };
+      groups.push(currentGroup);
+    }
+  }
+
+  // Step 2: Create a chunk per group (sub-chunk if very large)
+  const chunks: FileChunk[] = [];
+  for (const group of groups) {
+    const chunkContent = group.comments
+      .map(c => `[L${c.line}] ${c.text}`)
+      .join("\n");
+
+    if (group.comments.length <= CHUNK_SIZE) {
+      chunks.push({
+        id: chunkId(relativePath, group.startLine),
+        filePath,
+        relativePath,
+        content: chunkContent,
+        startLine: group.startLine,
+        endLine: group.endLine,
+        language,
+        type: "comment",
+      });
+    } else {
+      // Sub-chunk large comment blocks
+      for (let i = 0; i < group.comments.length; i += CHUNK_SIZE) {
+        const subGroup = group.comments.slice(i, i + CHUNK_SIZE);
+        const subContent = subGroup.map(c => `[L${c.line}] ${c.text}`).join("\n");
+        chunks.push({
+          id: chunkId(relativePath, subGroup[0]!.line),
+          filePath,
+          relativePath,
+          content: subContent,
+          startLine: subGroup[0]!.line,
+          endLine: subGroup[subGroup.length - 1]!.line,
+          language,
+          type: "comment",
+        });
+      }
+    }
+  }
+
+  return chunks;
 }
 
 /**

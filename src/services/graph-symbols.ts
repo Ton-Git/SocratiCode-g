@@ -10,7 +10,7 @@
 import { Lang, parse } from "@ast-grep/napi";
 import { getLanguageFromExtension } from "../constants.js";
 import type { SymbolEdge, SymbolKind, SymbolNode } from "../types.js";
-import { stripCobolComments } from "./cobol-utils.js";
+import { parseCobolComments, stripCobolComments, type CobolComment } from "./cobol-utils.js";
 import { logger } from "./logger.js";
 
 /** Result of extracting symbols + raw call sites from a file. */
@@ -949,6 +949,9 @@ function extractFromCobol(
   language: string,
   moduleSym: SymbolNode,
 ): ExtractedSymbols {
+  // Parse comments from the original source before stripping
+  const { comments } = parseCobolComments(source);
+  const originalLines = source.split("\n");
   source = stripCobolComments(source);
   const symbols: SymbolNode[] = [moduleSym];
   const scopes: ScopeFrame[] = [];
@@ -980,7 +983,7 @@ function extractFromCobol(
 
   // 1b. DIVISION extraction
   //     DIVISION-NAME DIVISION.
-  const divisionRegex = /^\s*([A-Za-z][\w-]*(?:\s+[A-Za-z][\w-]*)*)\s+DIVISION\s*\./gim;
+  const divisionRegex = /^[ \t]*([A-Za-z][\w-]*(?:\s+[A-Za-z][\w-]*)*)\s+DIVISION\s*\./gim;
   for (const match of source.matchAll(divisionRegex)) {
     const name = match[1].trim();
     if (COBOL_STATEMENT_RESERVED.has(name.toUpperCase())) continue;
@@ -1012,7 +1015,7 @@ function extractFromCobol(
 
   // 2. SECTION extraction
   //    section-name SECTION.
-  const sectionRegex = /^\s*([A-Za-z][\w-]*)\s+SECTION\s*\./gim;
+  const sectionRegex = /^[ \t]*([A-Za-z][\w-]*)\s+SECTION\s*\./gim;
   for (const match of source.matchAll(sectionRegex)) {
     const name = match[1];
     if (COBOL_STATEMENT_RESERVED.has(name.toUpperCase())) continue;
@@ -1046,7 +1049,7 @@ function extractFromCobol(
   //    First find where PROCEDURE DIVISION starts
   let procDivStart = 0;
   for (let i = 0; i < lines.length; i++) {
-    if (/^\s*PROCEDURE\s+DIVISION/i.test(lines[i]!)) {
+    if (/^[ \t]*PROCEDURE\s+DIVISION/i.test(lines[i]!)) {
       procDivStart = i + 1;
       break;
     }
@@ -1057,7 +1060,7 @@ function extractFromCobol(
   );
 
   if (procDivStart > 0) {
-    const paragraphRegex = /^\s*([A-Za-z0-9][\w-]*)\s*\.\s*$/;
+    const paragraphRegex = /^[ \t]*([A-Za-z0-9][\w-]*)\s*\.\s*$/;
     for (let i = procDivStart; i < lines.length; i++) {
       const m = lines[i]!.match(paragraphRegex);
       if (!m) continue;
@@ -1069,7 +1072,7 @@ function extractFromCobol(
       // Find end: next paragraph/section at same level
       let endLine = lineNum + 1;
       for (let j = i + 1; j < lines.length; j++) {
-        if (paragraphRegex.test(lines[j]!) || /^\s*[A-Za-z][\w-]*\s+SECTION\s*\./i.test(lines[j]!)) {
+        if (paragraphRegex.test(lines[j]!) || /^[ \t]*[A-Za-z][\w-]*\s+SECTION\s*\./i.test(lines[j]!)) {
           endLine = j;
           break;
         }
@@ -1089,6 +1092,9 @@ function extractFromCobol(
       scopes.push({ name, startLine: lineNum, endLine, symbolId: sym.id });
     }
   }
+
+  // Attach leading comments as annotations to symbols
+  attachCommentAnnotations(symbols, comments, originalLines);
 
   // 4. PERFORM & CALL detection — only within PROCEDURE DIVISION
   if (procDivStart === 0) {
@@ -1140,6 +1146,56 @@ function extractFromCobol(
   }
 
   return { symbols, rawCalls };
+}
+
+// ── COBOL comment annotation attachment ─────────────────────────────────
+
+/**
+ * Attach leading comment blocks as `annotation` on symbols.
+ *
+ * For each symbol, walks upward collecting contiguous comment lines
+ * immediately above it. Allows one blank line between the comment block
+ * and the symbol if another comment exists above the blank line.
+ */
+function attachCommentAnnotations(
+  symbols: SymbolNode[],
+  comments: CobolComment[],
+  lines: string[],
+): void {
+  // Build a lookup map: line number → comment
+  const commentAtLine = new Map<number, CobolComment>();
+  for (const c of comments) {
+    commentAtLine.set(c.line, c);
+  }
+
+  for (const sym of symbols) {
+    const annotationLines: string[] = [];
+    let checkLine = sym.line - 1;
+
+    while (checkLine >= 1) {
+      const comment = commentAtLine.get(checkLine);
+      if (comment && comment.text.length > 0) {
+        annotationLines.unshift(comment.text);
+        checkLine--;
+      } else {
+        // Stop at first non-comment, non-blank line
+        const rawLine = lines[checkLine - 1];
+        if (rawLine !== undefined && rawLine.trim() === "") {
+          // Allow one blank line between comment block and symbol
+          const commentAbove = commentAtLine.get(checkLine - 1);
+          if (commentAbove) {
+            checkLine--;
+            continue;
+          }
+        }
+        break;
+      }
+    }
+
+    if (annotationLines.length > 0) {
+      sym.annotation = annotationLines.join("\n");
+    }
+  }
 }
 
 // ── Regex fallback (Dart, Lua, Svelte/Vue, anything unsupported) ────────

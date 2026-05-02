@@ -288,6 +288,85 @@ describe("indexer utilities", () => {
         expect(chunk.content.length).toBeLessThanOrEqual(MAX_CHUNK_CHARS);
       }
     });
+
+    it("produces comment-type chunks for COBOL files with comments", () => {
+      const cobolSource = [
+        "       IDENTIFICATION DIVISION.",
+        "       PROGRAM-ID. TEST.",
+        "       DATA DIVISION.",
+        "       WORKING-STORAGE SECTION.",
+        "      * THIS IS A COMMENT ABOUT THE VARIABLE",
+        "      * USED FOR MONTHLY TAX CALCULATION",
+        "       01 WS-TAX PIC 9(4).",
+        "       PROCEDURE DIVISION.",
+        "      * MAIN ENTRY POINT", 
+        "       0000-MAIN.",
+        "           GOBACK.",
+        "           .",
+      ].join("\n");
+      const chunks = chunkFileContent("/test/code.cbl", "code.cbl", cobolSource);
+
+      // Should have at least one code chunk and at least one comment chunk
+      const commentChunks = chunks.filter(c => c.type === "comment");
+      const codeChunks = chunks.filter(c => c.type === "code");
+
+      expect(commentChunks.length).toBeGreaterThanOrEqual(1);
+      expect(codeChunks.length).toBeGreaterThanOrEqual(1);
+
+      // Comment chunk should contain the comment text
+      const allCommentContent = commentChunks.map(c => c.content).join("\n");
+      expect(allCommentContent).toContain("MONTHLY TAX CALCULATION");
+      expect(allCommentContent).toContain("MAIN ENTRY POINT");
+
+      // Comment chunks should have correct line references
+      for (const chunk of commentChunks) {
+        expect(chunk.language).toBe("cobol");
+        expect(chunk.startLine).toBeGreaterThanOrEqual(1);
+        expect(chunk.endLine).toBeGreaterThanOrEqual(chunk.startLine);
+      }
+    });
+
+    it("produces no comment chunks for COBOL files without comments", () => {
+      const cobolSource = [
+        "       IDENTIFICATION DIVISION.",
+        "       PROGRAM-ID. TEST.",
+        "       PROCEDURE DIVISION.",
+        "       0000-MAIN.",
+        "           GOBACK.",
+        "           .",
+      ].join("\n");
+      const chunks = chunkFileContent("/test/code.cbl", "code.cbl", cobolSource);
+      const commentChunks = chunks.filter(c => c.type === "comment");
+      expect(commentChunks).toHaveLength(0);
+    });
+
+    it("groups consecutive comment lines into one chunk", () => {
+      const cobolSource = [
+        "      * LINE ONE OF BLOCK",
+        "      * LINE TWO OF BLOCK",
+        "      * LINE THREE OF BLOCK",
+        "       MOVE 1 TO X.",
+      ].join("\n");
+      const chunks = chunkFileContent("/test/code.cbl", "code.cbl", cobolSource);
+      const commentChunks = chunks.filter(c => c.type === "comment");
+      // All three consecutive comment lines should be in one chunk
+      expect(commentChunks).toHaveLength(1);
+      expect(commentChunks[0]!.content).toContain("LINE ONE OF BLOCK");
+      expect(commentChunks[0]!.content).toContain("LINE TWO OF BLOCK");
+      expect(commentChunks[0]!.content).toContain("LINE THREE OF BLOCK");
+    });
+
+    it("separates non-consecutive comment blocks into distinct chunks", () => {
+      const cobolSource = [
+        "      * FIRST BLOCK",
+        "       MOVE 1 TO X.",
+        "      * SECOND BLOCK",
+        "       MOVE 2 TO Y.",
+      ].join("\n");
+      const chunks = chunkFileContent("/test/code.cbl", "code.cbl", cobolSource);
+      const commentChunks = chunks.filter(c => c.type === "comment");
+      expect(commentChunks.length).toBeGreaterThanOrEqual(2);
+    });
   });
 
   // ── getIndexableFiles (INCLUDE_DOT_FILES) ─────────────────────────────

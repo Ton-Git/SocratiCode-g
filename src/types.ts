@@ -113,6 +113,8 @@ export interface SymbolNode {
   /** Re-export alias, if any */
   exportedAs?: string;
   language: string;
+  /** Comment block immediately above this symbol (COBOL, etc.) */
+  annotation?: string;
 }
 
 /** Confidence level for a resolved call edge */

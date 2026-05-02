@@ -5,7 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { stripCobolComments } from "../../src/services/cobol-utils.js";
+import { stripCobolComments, parseCobolComments } from "../../src/services/cobol-utils.js";
 import { extractImports } from "../../src/services/graph-imports.js";
 import { resolveImport } from "../../src/services/graph-resolution.js";
 import {
@@ -722,6 +722,157 @@ describe("COBOL support", () => {
       );
 
       expect(result).toBe("copybook/vars.cpy");
+    });
+  });
+
+  // ── parseCobolComments (Phase 5) ─────────────────────────────────────
+
+  describe("parseCobolComments", () => {
+    it("returns both cleanSource and comments", () => {
+      const src = "      * COMMENT LINE\n       MOVE 1 TO X.";
+      const { cleanSource, comments } = parseCobolComments(src);
+      expect(cleanSource.split("\n").length).toBe(2);
+      expect(cleanSource).not.toContain("COMMENT");
+      expect(comments).toHaveLength(1);
+      expect(comments[0]!.text).toBe("COMMENT LINE");
+      expect(comments[0]!.line).toBe(1);
+      expect(comments[0]!.isPageBreak).toBe(false);
+    });
+
+    it("collects page-break comments with isPageBreak=true", () => {
+      const src = "      / PAGE BREAK\n       DISPLAY 'X'.";
+      const { comments } = parseCobolComments(src);
+      expect(comments).toHaveLength(1);
+      expect(comments[0]!.isPageBreak).toBe(true);
+      expect(comments[0]!.text).toBe("PAGE BREAK");
+    });
+
+    it("collects free-format *> comments", () => {
+      const src = "       MOVE 1 TO X.  *> inline comment\n       DISPLAY 'Y'.";
+      const { cleanSource, comments } = parseCobolComments(src);
+      expect(cleanSource).toContain("MOVE 1 TO X.");
+      expect(cleanSource).not.toContain("inline comment");
+      expect(comments).toHaveLength(1);
+      expect(comments[0]!.text).toBe("inline comment");
+    });
+
+    it("collects multiple comments", () => {
+      const src = [
+        "      * FIRST COMMENT",
+        "      * SECOND COMMENT",
+        "       MOVE 1 TO X.",
+      ].join("\n");
+      const { comments } = parseCobolComments(src);
+      expect(comments).toHaveLength(2);
+      expect(comments[0]!.text).toBe("FIRST COMMENT");
+      expect(comments[1]!.text).toBe("SECOND COMMENT");
+    });
+
+    it("returns empty comments array for source with no comments", () => {
+      const src = "       MOVE 1 TO X.";
+      const { cleanSource, comments } = parseCobolComments(src);
+      expect(comments).toHaveLength(0);
+      expect(cleanSource).toBe(src);
+    });
+
+    it("preserves line count in cleanSource", () => {
+      const src = "line1\n      * comment\nline3\n      * another\nline5";
+      const { cleanSource } = parseCobolComments(src);
+      expect(cleanSource.split("\n").length).toBe(5);
+    });
+  });
+
+  // ── Comment annotation attachment (Phase 5) ───────────────────────────
+
+  describe("extractFromCobol — annotation attachment", () => {
+    it("attaches leading comments as annotation to a paragraph", () => {
+      const src = [
+        `${A}PROCEDURE DIVISION.`,
+        `      * HANDLES THE MAIN LOGIC`,
+        `      * FOR MONTHLY REPORTING`,
+        `${A}MAIN-PARA.`,
+        "           GOBACK.",
+        "           .",
+      ].join("\n");
+      const { symbols } = extractCobolSymbols(src);
+      const para = symbols.find(s => s.kind === "paragraph" && s.name === "MAIN-PARA");
+      expect(para).toBeDefined();
+      expect(para!.annotation).toBeDefined();
+      expect(para!.annotation).toBe("HANDLES THE MAIN LOGIC\nFOR MONTHLY REPORTING");
+    });
+
+    it("attaches single comment line as annotation", () => {
+      const src = [
+        `${A}PROCEDURE DIVISION.`,
+        `      * QUICK NOTE ABOUT THIS PARA`,
+        `${A}SINGLE-COMMENT-PARA.`,
+        "           GOBACK.",
+        "           .",
+      ].join("\n");
+      const { symbols } = extractCobolSymbols(src);
+      const para = symbols.find(s => s.kind === "paragraph" && s.name === "SINGLE-COMMENT-PARA");
+      expect(para).toBeDefined();
+      expect(para!.annotation).toBe("QUICK NOTE ABOUT THIS PARA");
+    });
+
+    it("does not attach annotation when no comments above", () => {
+      const src = [
+        `${A}PROCEDURE DIVISION.`,
+        `${A}NO-COMMENT-PARA.`,
+        "           GOBACK.",
+        "           .",
+      ].join("\n");
+      const { symbols } = extractCobolSymbols(src);
+      const para = symbols.find(s => s.kind === "paragraph" && s.name === "NO-COMMENT-PARA");
+      expect(para).toBeDefined();
+      expect(para!.annotation).toBeUndefined();
+    });
+
+    it("allows one blank line between comment block and symbol", () => {
+      const src = [
+        `${A}PROCEDURE DIVISION.`,
+        `      * COMMENT ABOVE BLANK`,
+        "",  // blank line
+        `${A}BLANK-GAP-PARA.`,
+        "           GOBACK.",
+        "           .",
+      ].join("\n");
+      const { symbols } = extractCobolSymbols(src);
+      const para = symbols.find(s => s.kind === "paragraph" && s.name === "BLANK-GAP-PARA");
+      expect(para).toBeDefined();
+      expect(para!.annotation).toBe("COMMENT ABOVE BLANK");
+    });
+
+    it("stops at code lines (does not attach comments from distant blocks)", () => {
+      const src = [
+        `${A}PROCEDURE DIVISION.`,
+        `      * COMMENT FOR PARA-A`,
+        `${A}PARA-A.`,
+        "           MOVE 1 TO X.",
+        `${A}PARA-B.`,  // no comment above — should have no annotation
+        "           GOBACK.",
+        "           .",
+      ].join("\n");
+      const { symbols } = extractCobolSymbols(src);
+      const paraA = symbols.find(s => s.kind === "paragraph" && s.name === "PARA-A");
+      const paraB = symbols.find(s => s.kind === "paragraph" && s.name === "PARA-B");
+      expect(paraA!.annotation).toBe("COMMENT FOR PARA-A");
+      expect(paraB!.annotation).toBeUndefined();
+    });
+
+    it("attaches comments to sections too", () => {
+      const src = [
+        `${A}PROGRAM-ID. TEST.`,
+        `${A}DATA DIVISION.`,
+        `      * FILE SECTION DESCRIPTIONS`,
+        `${A}FILE SECTION.`,
+        "       FD INPUT-FILE.",
+        "       01 WS-REC PIC X(80).",
+      ].join("\n");
+      const { symbols } = extractCobolSymbols(src);
+      const section = symbols.find(s => s.kind === "section" && s.name === "FILE");
+      expect(section).toBeDefined();
+      expect(section!.annotation).toBe("FILE SECTION DESCRIPTIONS");
     });
   });
 });

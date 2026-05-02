@@ -400,6 +400,13 @@ export async function handleGraphTool(
       for (const ctx of ctxs) {
         lines.push(`Symbol: ${ctx.symbol.qualifiedName} (${ctx.symbol.kind})`);
         lines.push(`Defined: ${ctx.symbol.file}:${ctx.symbol.line}–${ctx.symbol.endLine}  [${ctx.symbol.language}]`);
+        if (ctx.symbol.annotation) {
+          lines.push("");
+          lines.push("Annotation:");
+          for (const aline of ctx.symbol.annotation.split("\n")) {
+            lines.push(`  ${aline}`);
+          }
+        }
         lines.push("");
         lines.push(`Callers (${ctx.callers.length}):`);
         if (ctx.callers.length === 0) lines.push("  (none — possibly an entry point or unused)");

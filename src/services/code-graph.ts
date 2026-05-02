@@ -6,7 +6,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { Lang, registerDynamicLanguage } from "@ast-grep/napi";
 import { graphCollectionName, projectIdFromPath } from "../config.js";
-import { EXTRA_EXTENSIONS, getLanguageFromExtension, MAX_GRAPH_FILE_BYTES } from "../constants.js";
+import { COBOL_EXTENSIONS, EXTRA_EXTENSIONS, getLanguageFromExtension, MAX_GRAPH_FILE_BYTES } from "../constants.js";
 import type {
   CodeGraph, CodeGraphEdge, CodeGraphNode,
   SymbolEdge, SymbolGraphFilePayload, SymbolGraphMeta, SymbolNode, SymbolRef,
@@ -509,7 +509,9 @@ export function getAstGrepLang(ext: string): Lang | string | null {
     ".swift": "swift",
     ".dart": "dart",
     ".lua": "lua",
-    ".cbl": "cobol", ".cob": "cobol", ".cpy": "cobol", ".cobol": "cobol",
+    // COBOL: no ast-grep grammar, but returns truthy string so files are collected
+    // by getGraphableFiles() and routed to extractFromCobol() via langKey check
+    ...Object.fromEntries(COBOL_EXTENSIONS.map(ext => [ext, "cobol"])),
     ".sh": "bash", ".bash": "bash", ".zsh": "bash",
     // Composite languages (parsed via HTML + script re-parse)
     ".svelte": "svelte",

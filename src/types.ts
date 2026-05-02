@@ -91,6 +91,7 @@ export type SymbolKind =
   | "struct"
   | "variable"
   | "program"     // COBOL PROGRAM-ID
+  | "division"    // COBOL DIVISION
   | "section"     // COBOL SECTION
   | "paragraph";  // COBOL PARAGRAPH
 

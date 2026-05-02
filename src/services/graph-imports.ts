@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Giancarlo Erra - Altaire Limited
 import { Lang, parse } from "@ast-grep/napi";
+import { stripCobolComments } from "./cobol-utils.js";
 import { logger } from "./logger.js";
 
 // ── Import extraction per language ───────────────────────────────────────
@@ -104,23 +105,24 @@ export function extractImports(source: string, lang: Lang | string, _ext: string
 
   // ── COBOL: COPY / EXEC SQL INCLUDE ────────────────────────────────────
   if (langKey === "cobol") {
+    source = stripCobolComments(source);
     // COPY "member.cpy" / COPY 'member.cpy'
     for (const match of source.matchAll(/COPY\s+["']([^"']+)["']/gi)) {
       imports.push({ moduleSpecifier: match[1], isDynamic: false });
     }
     // COPY member. (bare identifier ending with period)
-    for (const match of source.matchAll(/COPY\s+(\w+)\s*\./gi)) {
+    for (const match of source.matchAll(/COPY\s+([\w-]+)\s*\./gi)) {
       const name = match[1];
       if (!["REPLACING", "SUPPRESS", "IN", "OF"].includes(name.toUpperCase())) {
         imports.push({ moduleSpecifier: name, isDynamic: false });
       }
     }
     // COPY member OF library / COPY member IN library
-    for (const match of source.matchAll(/COPY\s+(\w+)\s+(?:OF|IN)\s+\w+/gi)) {
+    for (const match of source.matchAll(/COPY\s+([\w-]+)\s+(?:OF|IN)\s+[\w-]+/gi)) {
       imports.push({ moduleSpecifier: match[1], isDynamic: false });
     }
     // EXEC SQL INCLUDE member END-EXEC
-    for (const match of source.matchAll(/EXEC\s+SQL\s+INCLUDE\s+(\w+)/gi)) {
+    for (const match of source.matchAll(/EXEC\s+SQL\s+INCLUDE\s+([\w-]+)/gi)) {
       imports.push({ moduleSpecifier: match[1], isDynamic: false });
     }
     // EXEC SQL INCLUDE "file.sql" END-EXEC

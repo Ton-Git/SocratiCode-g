@@ -137,10 +137,18 @@ export const ENTRY_POINT_NAMES: Record<string, Set<string>> = {
   swift: new Set(["main"]),
   ruby: new Set(["main"]),
   php: new Set(["main"]),
+  // COBOL: no universal entry-point convention. Common patterns:
+  // - MAIN / MAIN-PROGRAM: generic names
+  // - 0000-MAIN: numeric-prefix convention (0xxx = main, 1xxx = init, etc.)
+  // The actual entry point is PROGRAM-ID; this set is used for heuristic
+  // entry-point detection when building the call graph.
   cobol: new Set(["MAIN", "MAIN-PROGRAM", "0000-MAIN"]),
 };
 
 // ── File type configuration ─────────────────────────────────────────────
+
+/** COBOL source and copybook file extensions */
+export const COBOL_EXTENSIONS = [".cbl", ".cob", ".cpy", ".cobol"] as const;
 
 export const SUPPORTED_EXTENSIONS = new Set([
   // JavaScript/TypeScript
@@ -182,7 +190,7 @@ export const SUPPORTED_EXTENSIONS = new Set([
   // Dockerfile
   ".dockerfile",
   // COBOL
-  ".cbl", ".cob", ".cpy", ".cobol"
+  ...COBOL_EXTENSIONS,
 ]);
 
 // ── Extra extensions (user-configurable) ─────────────────────────────────
@@ -254,7 +262,7 @@ export function getLanguageFromExtension(ext: string): string {
     ".lua": "lua",
     ".r": "r", ".R": "r",
     ".dockerfile": "dockerfile",
-    ".cbl": "cobol", ".cob": "cobol", ".cpy": "cobol", ".cobol": "cobol",
+    ...Object.fromEntries(COBOL_EXTENSIONS.map(ext => [ext, "cobol"])),
   };
   return map[ext] || "plaintext";
 }

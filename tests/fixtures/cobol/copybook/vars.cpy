@@ -1,0 +1,1 @@
+       01 WS-COPYBOOK-VAR PIC 9(4).

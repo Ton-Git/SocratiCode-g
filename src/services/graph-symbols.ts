@@ -10,6 +10,7 @@
 import { Lang, parse } from "@ast-grep/napi";
 import { getLanguageFromExtension } from "../constants.js";
 import type { SymbolEdge, SymbolKind, SymbolNode } from "../types.js";
+import { stripCobolComments } from "./cobol-utils.js";
 import { logger } from "./logger.js";
 
 /** Result of extracting symbols + raw call sites from a file. */
@@ -904,8 +905,12 @@ function extractFromBash(
 
 // ── COBOL ────────────────────────────────────────────────────────────────
 
-/** COBOL reserved words that should NOT be treated as paragraph/section names. */
-const COBOL_RESERVED = new Set([
+/**
+ * COBOL statement-level reserved words.
+ * These are COBOL verbs/statements that should NOT be treated as
+ * section or paragraph names (they appear as keywords in PROCEDURE DIVISION).
+ */
+const COBOL_STATEMENT_RESERVED = new Set([
   "ACCEPT", "ADD", "ALTER", "AND", "ARE", "AT",
   "CALL", "CANCEL", "CLOSE", "COMPUTE", "CONTINUE",
   "COPY", "DELETE", "DISPLAY", "DIVIDE", "ELSE",
@@ -914,17 +919,28 @@ const COBOL_RESERVED = new Set([
   "END-PERFORM", "END-READ", "END-RETURN", "END-REWRITE",
   "END-SEARCH", "END-START", "END-STRING", "END-SUBTRACT",
   "END-UNSTRING", "END-WRITE", "ENTRY", "EVALUATE",
-  "EXEC", "EXIT", "FD", "FILE", "FROM", "GO", "GOBACK",
+  "EXEC", "EXIT", "FROM", "GO", "GOBACK",
   "IF", "IN", "INITIALIZE", "INSPECT", "INTO", "IS",
   "MERGE", "MOVE", "MULTIPLY", "NOT", "OF", "ON",
-  "OPEN", "OR", "PERFORM", "READ", "REDEFINES", "RELEASE",
-  "REPLACE", "RETURN", "REWRITE", "SEARCH", "SELECT",
+  "OPEN", "OR", "PERFORM", "READ", "RELEASE",
+  "REPLACE", "RETURN", "REWRITE", "SEARCH",
   "SET", "SORT", "START", "STOP", "STRING", "SUBTRACT",
   "THEN", "TO", "UNSTRING", "UNTIL", "USING", "VARYING",
-  "WHEN", "WITH", "WORKING-STORAGE", "WRITE",
-  // Division headers
+  "WHEN", "WITH", "WRITE",
+]);
+
+/**
+ * COBOL structural keywords that appear as part of division/section headers.
+ * Used to filter paragraph names in PROCEDURE DIVISION.
+ * Does NOT filter section names (FILE SECTION, WORKING-STORAGE SECTION are valid).
+ */
+const COBOL_PARAGRAPH_RESERVED = new Set([
+  ...COBOL_STATEMENT_RESERVED,
+  // Division headers — can't be paragraph names
   "IDENTIFICATION", "ENVIRONMENT", "DATA", "PROCEDURE",
   "DIVISION", "SECTION",
+  // Data division keywords that look like paragraphs but aren't
+  "REDEFINES", "SELECT", "FILE", "FD", "WORKING-STORAGE",
 ]);
 
 function extractFromCobol(
@@ -933,6 +949,7 @@ function extractFromCobol(
   language: string,
   moduleSym: SymbolNode,
 ): ExtractedSymbols {
+  source = stripCobolComments(source);
   const symbols: SymbolNode[] = [moduleSym];
   const scopes: ScopeFrame[] = [];
   const lines = source.split("\n");
@@ -942,7 +959,7 @@ function extractFromCobol(
 
   // 1. PROGRAM-ID extraction
   //    PROGRAM-ID. program-name. / PROGRAM-ID IS program-name.
-  const programIdRegex = /PROGRAM-ID\s*\.?\s*(?:IS\s+)?(\w+)/gi;
+  const programIdRegex = /PROGRAM-ID\s*\.?\s*(?:IS\s+)?([\w-]+)/gi;
   for (const match of source.matchAll(programIdRegex)) {
     const name = match[1];
     const lineNum = source.substring(0, match.index!).split("\n").length;
@@ -961,17 +978,49 @@ function extractFromCobol(
     scopes.push({ name, startLine: lineNum, endLine: lines.length, symbolId: sym.id });
   }
 
+  // 1b. DIVISION extraction
+  //     DIVISION-NAME DIVISION.
+  const divisionRegex = /^\s*([A-Za-z][\w-]*(?:\s+[A-Za-z][\w-]*)*)\s+DIVISION\s*\./gim;
+  for (const match of source.matchAll(divisionRegex)) {
+    const name = match[1].trim();
+    if (COBOL_STATEMENT_RESERVED.has(name.toUpperCase())) continue;
+    const lineNum = source.substring(0, match.index!).split("\n").length;
+    // Find end: next DIVISION or end of file
+    let endLine = lines.length;
+    for (let i = lineNum; i < lines.length; i++) {
+      // i is 1-indexed; lines[] is 0-indexed, so lines[i - 1] is line i.
+      // Skip i === lineNum (the division header itself).
+      if (i > lineNum && /^\s*[A-Za-z][\w-]*(?:\s+[A-Za-z][\w-]*)*\s+DIVISION\s*\./i.test(lines[i - 1]!)) {
+        endLine = i - 1;
+        break;
+      }
+    }
+    const qname = currentProgram ? `${currentProgram}.${name}` : name;
+    const sym: SymbolNode = {
+      id: makeId(file, qname, lineNum),
+      name,
+      qualifiedName: qname,
+      kind: "division",
+      file,
+      line: lineNum,
+      endLine,
+      language,
+    };
+    symbols.push(sym);
+    scopes.push({ name, startLine: lineNum, endLine, symbolId: sym.id });
+  }
+
   // 2. SECTION extraction
   //    section-name SECTION.
-  const sectionRegex = /^\s{0,6}([A-Za-z][\w-]*)\s+SECTION\s*\./gim;
+  const sectionRegex = /^\s*([A-Za-z][\w-]*)\s+SECTION\s*\./gim;
   for (const match of source.matchAll(sectionRegex)) {
     const name = match[1];
-    if (COBOL_RESERVED.has(name.toUpperCase())) continue;
+    if (COBOL_STATEMENT_RESERVED.has(name.toUpperCase())) continue;
     const lineNum = source.substring(0, match.index!).split("\n").length;
     // Find end of section: next SECTION or end of file
     let endLine = lines.length;
     for (let i = lineNum; i < lines.length; i++) {
-      if (i > lineNum && /^\s{0,6}[A-Za-z][\w-]*\s+SECTION\s*\./i.test(lines[i]!)) {
+      if (i > lineNum && /^\s*[A-Za-z][\w-]*\s+SECTION\s*\./i.test(lines[i]!)) {
         endLine = i;
         break;
       }
@@ -997,25 +1046,30 @@ function extractFromCobol(
   //    First find where PROCEDURE DIVISION starts
   let procDivStart = 0;
   for (let i = 0; i < lines.length; i++) {
-    if (/^\s{0,6}PROCEDURE\s+DIVISION/i.test(lines[i]!)) {
+    if (/^\s*PROCEDURE\s+DIVISION/i.test(lines[i]!)) {
       procDivStart = i + 1;
       break;
     }
   }
+  // Build set of section names for fast lookup
+  const sectionNames = new Set(
+    symbols.filter(s => s.kind === "section").map(s => s.name),
+  );
+
   if (procDivStart > 0) {
-    const paragraphRegex = /^\s{0,6}([A-Za-z][\w-]*)\s*\.\s*$/;
+    const paragraphRegex = /^\s*([A-Za-z0-9][\w-]*)\s*\.\s*$/;
     for (let i = procDivStart; i < lines.length; i++) {
       const m = lines[i]!.match(paragraphRegex);
       if (!m) continue;
       const name = m[1];
-      if (COBOL_RESERVED.has(name.toUpperCase())) continue;
+      if (COBOL_PARAGRAPH_RESERVED.has(name.toUpperCase())) continue;
       // Skip if already captured as a section
-      if (symbols.some((s) => s.name === name && s.kind === "section")) continue;
+      if (sectionNames.has(name)) continue;
       const lineNum = i + 1;
       // Find end: next paragraph/section at same level
       let endLine = lineNum + 1;
       for (let j = i + 1; j < lines.length; j++) {
-        if (paragraphRegex.test(lines[j]!) || /^\s{0,6}[A-Za-z][\w-]*\s+SECTION\s*\./i.test(lines[j]!)) {
+        if (paragraphRegex.test(lines[j]!) || /^\s*[A-Za-z][\w-]*\s+SECTION\s*\./i.test(lines[j]!)) {
           endLine = j;
           break;
         }
@@ -1036,14 +1090,34 @@ function extractFromCobol(
     }
   }
 
+  // 4. PERFORM & CALL detection — only within PROCEDURE DIVISION
+  if (procDivStart === 0) {
+    return { symbols, rawCalls };
+  }
+  const procSource = lines.slice(procDivStart).join("\n");
+
   // 4. PERFORM call detection
   //    PERFORM paragraph-name / PERFORM section-name
   //    PERFORM name THRU name2 / PERFORM name UNTIL ...
   const performRegex = /PERFORM\s+([A-Za-z][\w-]*)/gi;
-  for (const match of source.matchAll(performRegex)) {
+  for (const match of procSource.matchAll(performRegex)) {
     const calleeName = match[1];
-    if (COBOL_RESERVED.has(calleeName.toUpperCase())) continue;
-    const lineNum = source.substring(0, match.index!).split("\n").length;
+    if (COBOL_STATEMENT_RESERVED.has(calleeName.toUpperCase())) continue;
+    const lineNum = procDivStart + procSource.substring(0, match.index!).split("\n").length;
+    rawCalls.push({
+      callerId: findCallerId(scopes, lineNum, moduleSym.id),
+      calleeName,
+      callSite: { file, line: lineNum },
+    });
+  }
+
+  // 4b. PERFORM THRU secondary target
+  //     PERFORM PARA-A THRU/THROUGH PARA-C → also capture PARA-C as a call target
+  const performThruRegex = /PERFORM\s+[A-Za-z][\w-]*\s+THRU(?:OUGH)?\s+([A-Za-z][\w-]*)/gi;
+  for (const match of procSource.matchAll(performThruRegex)) {
+    const calleeName = match[1];
+    if (COBOL_STATEMENT_RESERVED.has(calleeName.toUpperCase())) continue;
+    const lineNum = procDivStart + procSource.substring(0, match.index!).split("\n").length;
     rawCalls.push({
       callerId: findCallerId(scopes, lineNum, moduleSym.id),
       calleeName,
@@ -1053,11 +1127,11 @@ function extractFromCobol(
 
   // 5. CALL statement detection (inter-program calls)
   //    CALL "program-name" / CALL literal
-  const callRegex = /CALL\s+["']?(\w+)["']?/gi;
-  for (const match of source.matchAll(callRegex)) {
+  const callRegex = /CALL\s+["']?([\w-]+)["']?/gi;
+  for (const match of procSource.matchAll(callRegex)) {
     const calleeName = match[1];
-    if (calleeName.toUpperCase() === "CALL") continue;
-    const lineNum = source.substring(0, match.index!).split("\n").length;
+    if (COBOL_STATEMENT_RESERVED.has(calleeName.toUpperCase())) continue;
+    const lineNum = procDivStart + procSource.substring(0, match.index!).split("\n").length;
     rawCalls.push({
       callerId: findCallerId(scopes, lineNum, moduleSym.id),
       calleeName,

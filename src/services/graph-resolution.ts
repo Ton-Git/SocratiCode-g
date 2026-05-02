@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Giancarlo Erra - Altaire Limited
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { COBOL_EXTENSIONS } from "../constants.js";
 import type { PathAliases } from "./graph-aliases.js";
 
 // ── Module resolution ────────────────────────────────────────────────────
@@ -353,7 +354,7 @@ export function resolveImport(
     }
 
     case "cobol": {
-      const cobolExts = [".cpy", ".cbl", ".cob", ".cobol"];
+      const cobolExts = [...COBOL_EXTENSIONS];
       // Quoted path: COPY "member.cpy"
       if (moduleSpecifier.includes(".") || moduleSpecifier.includes("/") || moduleSpecifier.includes("\\")) {
         return resolveRelativePath(moduleSpecifier, sourceDir, projectPath, fileSet, [...cobolExts, ".sql"]);

@@ -4,6 +4,52 @@ All notable changes to SocratiCode are documented here.
 This project uses [Conventional Commits](https://www.conventionalcommits.org/) and [Semantic Versioning](https://semver.org/).
 
 
+## [1.8.4](https://github.com/giancarloerra/socraticode/compare/v1.8.3...v1.8.4) (2026-05-04)
+
+### Bug Fixes
+
+* **graph:** pre-validate ast-grep grammar libraryPath to survive missing prebuilds ([#44](https://github.com/giancarloerra/socraticode/issues/44)) ([e6ce327](https://github.com/giancarloerra/socraticode/commit/e6ce32710acccd6cb4a241c39a3561803e0e7dbd))
+
+## [1.8.3](https://github.com/giancarloerra/socraticode/compare/v1.8.2...v1.8.3) (2026-05-04)
+
+### Features
+
+* **embeddings:** add LM Studio as a first-class embedding provider ([#42](https://github.com/giancarloerra/socraticode/issues/42)) ([332ee80](https://github.com/giancarloerra/socraticode/commit/332ee800a85fd35ded4e37adabecbfdd6221d31b))
+
+## [1.8.2](https://github.com/giancarloerra/socraticode/compare/v1.8.1...v1.8.2) (2026-05-04)
+
+### Bug Fixes
+
+* cover JVM annotation and Scala callable edge cases ([6a76ad4](https://github.com/giancarloerra/socraticode/commit/6a76ad478275d6e65d58d00684414f4936ef4f83))
+* extract JVM symbol names from declarations ([019eba0](https://github.com/giancarloerra/socraticode/commit/019eba058356539d23d4212a9387c5821d4a3f47))
+
+### Tests
+
+* cover JVM annotations with parameters ([1dbc1eb](https://github.com/giancarloerra/socraticode/commit/1dbc1eb398014d418f97879a875d003c28f8b608))
+
+## [1.8.1](https://github.com/giancarloerra/socraticode/compare/v1.8.0...v1.8.1) (2026-05-04)
+
+### Bug Fixes
+
+* **docs:** replace broken Marketplace badges and surface listings in main README ([8d6cb86](https://github.com/giancarloerra/socraticode/commit/8d6cb86b274132c0f65e46b3396e36a0b8e1f3cd))
+
+## [1.8.0](https://github.com/giancarloerra/socraticode/compare/v1.7.2...v1.8.0) (2026-05-03)
+
+### Features
+
+* **extension:** add VS Code and Open VSX extension ([bbc6819](https://github.com/giancarloerra/socraticode/commit/bbc68199c3577c463c049199b64f36ad5ddebb66))
+
+### Bug Fixes
+
+* **extension:** harden review-flagged paths ([562a946](https://github.com/giancarloerra/socraticode/commit/562a946053e79e3236950bb715a30762c2853869))
+* **extension:** tighten graphPanel path and line-number bounds ([c2d012f](https://github.com/giancarloerra/socraticode/commit/c2d012fe4c72704dd431b34124b3b6f3c06b485a))
+
+### Documentation
+
+* **extension:** add Discord badge and hosted-edition pointer ([9a197b3](https://github.com/giancarloerra/socraticode/commit/9a197b3421d30f101d832ce0de0659405c5a0df7))
+* **extension:** editor-neutral marketplace README with hero, badges and benchmarks ([345c728](https://github.com/giancarloerra/socraticode/commit/345c7281d0c8df7b370f2d38d38012fdd09e2701))
+* surface VS Code / Open VSX extension and Cursor Marketplace ([d9459f8](https://github.com/giancarloerra/socraticode/commit/d9459f8591fb4085f49d358b2787be91058ac79a))
+
 ## [1.7.2](https://github.com/giancarloerra/socraticode/compare/v1.7.1...v1.7.2) (2026-04-28)
 
 ### Bug Fixes

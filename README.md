@@ -15,6 +15,8 @@
 
 <p align="center">
   <a href="#claude-code-plugin-recommended-for-claude-code-users"><img src="https://img.shields.io/badge/Claude_Code-Install_Plugin-CC785C?style=flat-square&logoColor=white" alt="Install Claude Code Plugin"></a>
+  <a href="https://marketplace.visualstudio.com/items?itemName=giancarloerra.socraticode"><img src="https://vsmarketplacebadges.dev/version-short/giancarloerra.socraticode.svg?style=flat-square&label=VS%20Code%20Marketplace&logo=visualstudiocode&color=0098FF" alt="VS Code Marketplace"></a>
+  <a href="https://open-vsx.org/extension/giancarloerra/socraticode"><img src="https://img.shields.io/open-vsx/v/giancarloerra/socraticode?style=flat-square&label=Open%20VSX&color=A52A2A" alt="Open VSX"></a>
   <a href="https://insiders.vscode.dev/redirect/mcp/install?name=socraticode&config=%7B%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22socraticode%22%5D%7D"><img src="https://img.shields.io/badge/VS_Code-Install_MCP_Server-0098FF?style=flat-square&logo=visualstudiocode&logoColor=white" alt="Install in VS Code"></a>
   <a href="https://insiders.vscode.dev/redirect/mcp/install?name=socraticode&config=%7B%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22socraticode%22%5D%7D&quality=insiders"><img src="https://img.shields.io/badge/VS_Code_Insiders-Install_MCP_Server-24bfa5?style=flat-square&logo=visualstudiocode&logoColor=white" alt="Install in VS Code Insiders"></a>
   <a href="cursor://anysphere.cursor-deeplink/mcp/install?name=socraticode&config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsInNvY3JhdGljb2RlIl19"><img src="https://img.shields.io/badge/Cursor-Install_MCP_Server-F14C28?style=flat-square&logo=cursor&logoColor=white" alt="Install in Cursor"></a>
@@ -169,13 +171,19 @@ SocratiCode is available as a native plugin on multiple AI coding platforms. Plu
 | Platform | Install method |
 |:---------|:---------------|
 | Claude Code | `claude plugin marketplace add giancarloerra/socraticode && claude plugin install socraticode@socraticode` — [full instructions](#claude-code-plugin-recommended-for-claude-code-users) |
-| Cursor | `/add-plugin https://github.com/giancarloerra/socraticode` |
-| VS Code Copilot | Command Palette → `Chat: Install Plugin From Source` → `https://github.com/giancarloerra/socraticode` |
+| **VS Code / Cursor / VSCodium / Gitpod / code-server / Theia / Antigravity / Particle Workbench** (extension) | Search **SocratiCode** in the Extensions panel (VS Code Marketplace or Open VSX). The extension auto-registers the MCP server in Copilot agent mode, Cline, Continue and Roo Code, and adds a sidebar, interactive graph webview, and onboarding walkthrough. _Source: [`extension/`](./extension)._ |
+| Cursor | `/add-plugin https://github.com/giancarloerra/socraticode` (plugin format with skills). Also listed in the Cursor Marketplace at [cursor.com/marketplace](https://cursor.com/marketplace). |
+| VS Code Copilot | Command Palette → `Chat: Install Plugin From Source` → `https://github.com/giancarloerra/socraticode` (plugin format with skills) |
 | Zed | Add as a custom MCP server in Zed settings — [config example](#zed) |
 | Gemini CLI | `gemini extensions install https://github.com/giancarloerra/socraticode` |
 | OpenAI Codex | No public plugin directory yet — use the [MCP config](#quick-start) or see **Codex local install** below |
 
-> **VS Code Copilot**: The chat plugins feature is in preview. Enable it with `chat.plugins.enabled: true` in your VS Code settings.
+> **Extension vs plugin (what to install in VS Code / Cursor):**
+>
+> - The **extension** (Marketplace / Open VSX listing) is a regular VS Code-style extension. It auto-registers the MCP server in Copilot agent mode, Cline, Continue, Roo Code, plus adds a sidebar, status-bar item, interactive graph webview, walkthrough and palette commands. Best for most users.
+> - The **plugins** (`/add-plugin` for Cursor, `Chat: Install Plugin From Source` for VS Code Copilot) bundle the MCP server **plus skills + agent instructions** that teach the AI to use SocratiCode tools effectively. Best when you want the agent to be opinionated about using SocratiCode.
+> - You can install both. The extension only registers the MCP server once, so they don't conflict.
+> - **VS Code Copilot note**: the chat plugins feature is in preview. Enable it with `chat.plugins.enabled: true` in your VS Code settings.
 
 > **Codex local plugin install**: Clone the repo and register it in your personal plugin marketplace:
 > ```bash
@@ -232,7 +240,7 @@ On VS Code's 2.45M‑line codebase, SocratiCode answers architectural questions 
 - **Hybrid code search** — Built on Qdrant, a purpose-built vector database with HNSW indexing, concurrent read/write, and payload filtering. Each chunk stores both a dense vector and a BM25 sparse vector; the Query API runs both sub-queries in a single round-trip and fuses results with Reciprocal Rank Fusion (RRF). Semantic search handles conceptual queries like "authentication middleware" even when those exact words don't appear in the code. BM25 handles exact identifier and keyword lookups. You get the best of both in every query with no tuning required.
 - **Configurable Qdrant** — Use the built-in Docker Qdrant (default, zero config) or connect to your own instance (self-hosted, remote server, or Qdrant Cloud). Configure via `QDRANT_MODE`, `QDRANT_URL`, and `QDRANT_API_KEY` environment variables.
 - **Configurable Ollama** — Use the built-in Docker Ollama (default, zero config) or point to your own Ollama instance (native install -GPU access-, remote server, etc.). Configure via `OLLAMA_MODE`, `OLLAMA_URL`, `EMBEDDING_MODEL` and `EMBEDDING_DIMENSIONS` environment variables.
-- **Multi-provider embeddings** — Switch between Local Ollama (private, GPU access), Docker Ollama (zero-config), OpenAI (`text-embedding-3-small`, fastest), or Google Gemini (`gemini-embedding-001`, free tier) with a single environment variable. No provider-specific configuration files.
+- **Multi-provider embeddings** — Switch between Local Ollama (private, GPU access), Docker Ollama (zero-config), OpenAI (`text-embedding-3-small`, fastest), Google Gemini (`gemini-embedding-001`, free tier), or LM Studio (local OpenAI-compatible server) with a single environment variable. No provider-specific configuration files.
 - **Private & secure** — Everything runs on your machine — your code never leaves your network. The default Docker setup includes Ollama (embeddings) and Qdrant (vector storage) with no external API calls. No API costs, no token limits. Suitable for air-gapped and on-premises environments. Optional cloud providers (OpenAI, Google Gemini, Qdrant Cloud) are available but never required.
 - **AST-aware chunking** — Files are split at function/class boundaries using AST parsing (ast-grep), not arbitrary line counts. This produces higher-quality search results. Falls back to line-based chunking for unsupported languages.
 - **Polyglot code dependency graph** — Static analysis of import/require/use/include statements using ast-grep for 18+ languages. No external tools like dependency-cruiser required. Detects circular dependencies and generates visual Mermaid diagrams.
@@ -677,6 +685,36 @@ Use Google's Gemini embedding API. Requires an [API key](https://aistudio.google
 
 > Defaults: `EMBEDDING_MODEL=gemini-embedding-001`, `EMBEDDING_DIMENSIONS=3072`.
 
+#### LM Studio (local, OpenAI-compatible)
+
+[LM Studio](https://lmstudio.ai/) ships with a Local Server that exposes an OpenAI-compatible
+API on `http://localhost:1234/v1`. Use this provider when you want to host embedding models
+in LM Studio (e.g. when LM Studio is your single source for both chat and embedding models,
+or when you want a Mac/Windows-friendly desktop UI for managing GGUF models).
+
+```json
+{
+  "mcpServers": {
+    "socraticode": {
+      "command": "node",
+      "args": ["/absolute/path/to/socraticode/dist/index.js"],
+      "env": {
+        "EMBEDDING_PROVIDER": "lmstudio",
+        "EMBEDDING_MODEL": "nomic-embed-text-v1.5",
+        "EMBEDDING_DIMENSIONS": "768"
+      }
+    }
+  }
+}
+```
+
+> **No defaults — `EMBEDDING_MODEL` and `EMBEDDING_DIMENSIONS` are required.** LM Studio has
+> no out-of-the-box embedding model; you load one yourself in the Local Server tab. SocratiCode
+> fails fast if either is missing.
+>
+> Optional: `LMSTUDIO_URL` (default `http://localhost:1234/v1`) for non-default ports;
+> `LMSTUDIO_API_KEY` if you've enabled API key auth in LM Studio.
+
 ### Git Worktrees (shared index across directories)
 
 If you use [git worktrees](https://git-scm.com/docs/git-worktree) — or any workflow where the same repository lives in multiple directories — each path would normally get its own Qdrant index. This means redundant embedding and storage for what is essentially the same codebase.
@@ -1064,10 +1102,10 @@ The rest of this section documents the variables themselves. Pass them using whi
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `EMBEDDING_PROVIDER` | `ollama` | Embedding backend: `ollama` (local, default), `openai`, or `google` |
-| `EMBEDDING_MODEL` | *(per provider)* | Model name. Defaults: `nomic-embed-text` (ollama), `text-embedding-3-small` (openai), `gemini-embedding-001` (google) |
-| `EMBEDDING_DIMENSIONS` | *(per provider)* | Vector dimensions. Defaults: `768` (ollama), `1536` (openai), `3072` (google) |
-| `EMBEDDING_CONTEXT_LENGTH` | *(auto-detected)* | Model context window in tokens. Auto-detected for known models. Set manually for custom models. |
+| `EMBEDDING_PROVIDER` | `ollama` | Embedding backend: `ollama` (local, default), `openai`, `google`, or `lmstudio` |
+| `EMBEDDING_MODEL` | *(per provider)* | Model name. Defaults: `nomic-embed-text` (ollama), `text-embedding-3-small` (openai), `gemini-embedding-001` (google). **Required** for `lmstudio` (no default). |
+| `EMBEDDING_DIMENSIONS` | *(per provider)* | Vector dimensions. Defaults: `768` (ollama), `1536` (openai), `3072` (google). **Required** for `lmstudio` (no default; varies per loaded model). |
+| `EMBEDDING_CONTEXT_LENGTH` | *(auto-detected)* | Model context window in tokens. Auto-detected for known models. Set manually for custom or LM Studio models. |
 
 ### Ollama Configuration (when `EMBEDDING_PROVIDER=ollama`)
 
@@ -1085,6 +1123,13 @@ The rest of this section documents the variables themselves. Pass them using whi
 |----------|---------|-------------|
 | `OPENAI_API_KEY` | *(none)* | Required when `EMBEDDING_PROVIDER=openai`. Get from [platform.openai.com](https://platform.openai.com/api-keys) |
 | `GOOGLE_API_KEY` | *(none)* | Required when `EMBEDDING_PROVIDER=google`. Get from [aistudio.google.com](https://aistudio.google.com/apikey) |
+
+### LM Studio Configuration (when `EMBEDDING_PROVIDER=lmstudio`)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `LMSTUDIO_URL` | `http://localhost:1234/v1` | Full base URL of LM Studio's OpenAI-compatible Local Server. Override when the server runs on a non-default port or a remote machine (e.g. `http://gpu-rig.local:5678/v1`). Must include the `/v1` suffix. |
+| `LMSTUDIO_API_KEY` | *(none)* | Optional. LM Studio's Local Server has no auth by default; set this only if you've enabled API key auth in the LM Studio UI. |
 
 ### Qdrant Configuration
 

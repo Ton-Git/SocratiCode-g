@@ -469,7 +469,7 @@ export function chunkFileContent(
   if (language === "cobol") {
     try {
       const commentChunks = buildCobolCommentChunks(filePath, relativePath, content, language);
-      chunks = applyCharCap([...chunks, ...commentChunks]);
+      chunks = [...chunks, ...applyCharCap(commentChunks)];
     } catch (err) {
       logger.debug("COBOL comment chunking failed (continuing without comments)", {
         relativePath,
@@ -536,7 +536,7 @@ function buildCobolCommentChunks(
   const chunks: FileChunk[] = [];
   for (const group of groups) {
     const chunkContent = group.comments
-      .map(c => `[L${c.line}] ${c.text}`)
+      .map(c => c.text)
       .join("\n");
 
     if (group.comments.length <= CHUNK_SIZE) {
@@ -554,7 +554,7 @@ function buildCobolCommentChunks(
       // Sub-chunk large comment blocks
       for (let i = 0; i < group.comments.length; i += CHUNK_SIZE) {
         const subGroup = group.comments.slice(i, i + CHUNK_SIZE);
-        const subContent = subGroup.map(c => `[L${c.line}] ${c.text}`).join("\n");
+        const subContent = subGroup.map(c => c.text).join("\n");
         chunks.push({
           id: chunkId(relativePath, subGroup[0]!.line),
           filePath,

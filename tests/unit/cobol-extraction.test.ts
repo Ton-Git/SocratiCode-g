@@ -875,4 +875,121 @@ describe("COBOL support", () => {
       expect(section!.annotation).toBe("FILE SECTION DESCRIPTIONS");
     });
   });
+
+  // ── Free-format COBOL ────────────────────────────────────────────────
+
+  describe("free-format COBOL (*> comments)", () => {
+    it("strips free-format comments at end of line", () => {
+      const src = "MOVE 1 TO X. *> inline comment\nDISPLAY X. *> another";
+      const result = stripCobolComments(src);
+      const lines = result.split("\n");
+      expect(lines[0]!.trim()).toBe("MOVE 1 TO X.");
+      expect(lines[1]!.trim()).toBe("DISPLAY X.");
+    });
+
+    it("parses free-format comments with line numbers", () => {
+      const src = "*> first comment\nMOVE 1 TO X.\n*> second comment";
+      const { comments, cleanSource } = parseCobolComments(src);
+      expect(comments).toHaveLength(2);
+      expect(comments[0]).toEqual({ line: 1, text: "first comment", isPageBreak: false });
+      expect(comments[1]).toEqual({ line: 3, text: "second comment", isPageBreak: false });
+      // Line numbers preserved
+      expect(cleanSource.split("\n")).toHaveLength(3);
+    });
+
+    it("extracts symbols from free-format source", () => {
+      const src = [
+        "IDENTIFICATION DIVISION.",
+        "PROGRAM-ID. FREE-PROG.",
+        "PROCEDURE DIVISION.",
+        "MAIN-LOGIC.",
+        "    PERFORM SUB-TASK",
+        "    GOBACK.",
+        "    .",
+        "SUB-TASK.",
+        "    DISPLAY 'hello'.",
+        "    .",
+      ].join("\n");
+      const { symbols, rawCalls } = extractCobolSymbols(src);
+      const program = symbols.find(s => s.kind === "program");
+      expect(program?.name).toBe("FREE-PROG");
+      const paras = symbols.filter(s => s.kind === "paragraph");
+      expect(paras.map(p => p.name).sort()).toEqual(["MAIN-LOGIC", "SUB-TASK"].sort());
+      expect(rawCalls).toHaveLength(1);
+      expect(rawCalls[0]!.calleeName).toBe("SUB-TASK");
+    });
+  });
+
+  // ── Edge cases ──────────────────────────────────────────────────────
+
+  describe("edge cases", () => {
+    it("handles program without PROCEDURE DIVISION (symbols, no calls)", () => {
+      const src = [
+        `${A}IDENTIFICATION DIVISION.`,
+        `${A}PROGRAM-ID. NO-PROC.`,
+        `${A}DATA DIVISION.`,
+        `${A}WORKING-STORAGE SECTION.`,
+        "       01 WS-X PIC 9(4).",
+      ].join("\n");
+      const { symbols, rawCalls } = extractCobolSymbols(src);
+      expect(rawCalls).toHaveLength(0);
+      const kinds = symbols.map(s => s.kind);
+      expect(kinds).toContain("program");
+      expect(kinds).toContain("division");
+      expect(kinds).toContain("section");
+    });
+
+    it("handles program without PROGRAM-ID (module symbol only)", () => {
+      const src = [
+        `${A}PROCEDURE DIVISION.`,
+        `${A}MAIN-PARA.`,
+        "           GOBACK.",
+        "           .",
+      ].join("\n");
+      const { symbols } = extractCobolSymbols(src);
+      const program = symbols.find(s => s.kind === "program");
+      expect(program).toBeUndefined();
+      const para = symbols.find(s => s.kind === "paragraph" && s.name === "MAIN-PARA");
+      expect(para).toBeDefined();
+    });
+
+    it("handles empty file", () => {
+      const { symbols, rawCalls } = extractCobolSymbols("");
+      expect(symbols).toHaveLength(1); // module symbol only
+      expect(rawCalls).toHaveLength(0);
+    });
+
+    it("handles file with only comments", () => {
+      const src = "      * ONLY COMMENTS HERE\n      * NOTHING ELSE";
+      const { symbols, rawCalls } = extractCobolSymbols(src);
+      expect(symbols).toHaveLength(1); // module symbol only
+      expect(rawCalls).toHaveLength(0);
+    });
+
+    it("correctly computes end-lines for adjacent sections", () => {
+      const src = [
+        `${A}PROGRAM-ID. ADJ-TEST.`,
+        `${A}DATA DIVISION.`,
+        `${A}FILE SECTION.`,
+        "       01 DUMMY PIC X.",
+        `${A}WORKING-STORAGE SECTION.`,
+        "       01 WS-X PIC 9(4).",
+        `${A}PROCEDURE DIVISION.`,
+        `${A}SEC-A SECTION.`,
+        "           MOVE 1 TO X.",
+        `${A}SEC-B SECTION.`,
+        "           MOVE 2 TO Y.",
+        "           .",
+      ].join("\n");
+      const { symbols } = extractCobolSymbols(src);
+      const secA = symbols.find(s => s.kind === "section" && s.name === "SEC-A");
+      const secB = symbols.find(s => s.kind === "section" && s.name === "SEC-B");
+      expect(secA).toBeDefined();
+      expect(secB).toBeDefined();
+      // SEC-A ends where SEC-B begins
+      expect(secA!.endLine).toBeLessThan(secB!.line);
+      // SEC-B ends at or near end of file
+      expect(secB!.endLine).toBeGreaterThanOrEqual(secB!.line);
+    });
+  });
 });

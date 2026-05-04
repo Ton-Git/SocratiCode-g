@@ -10,7 +10,7 @@
 import { Lang, parse } from "@ast-grep/napi";
 import { getLanguageFromExtension } from "../constants.js";
 import type { SymbolEdge, SymbolKind, SymbolNode } from "../types.js";
-import { parseCobolComments, stripCobolComments, type CobolComment } from "./cobol-utils.js";
+import { parseCobolComments, type CobolComment } from "./cobol-utils.js";
 import { logger } from "./logger.js";
 
 /** Result of extracting symbols + raw call sites from a file. */
@@ -903,6 +903,28 @@ function extractFromBash(
   return { symbols, rawCalls };
 }
 
+// ── COBOL helpers ──────────────────────────────────────────────────────
+
+/** Sorted array of character offsets where each line starts (for fast line lookup). */
+function buildLineOffsets(src: string): number[] {
+  const offsets = [0];
+  for (let i = 0; i < src.length; i++) {
+    if (src[i] === "\n") offsets.push(i + 1);
+  }
+  return offsets;
+}
+
+/** Binary search for 1-indexed line number at a character offset. */
+function offsetToLine(offsets: number[], charOffset: number): number {
+  let lo = 0, hi = offsets.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (offsets[mid] <= charOffset) lo = mid;
+    else hi = mid - 1;
+  }
+  return lo + 1;
+}
+
 // ── COBOL ────────────────────────────────────────────────────────────────
 
 /**
@@ -949,10 +971,11 @@ function extractFromCobol(
   language: string,
   moduleSym: SymbolNode,
 ): ExtractedSymbols {
-  // Parse comments from the original source before stripping
-  const { comments } = parseCobolComments(source);
+  // Parse comments and strip them in a single pass
+  const { comments, cleanSource } = parseCobolComments(source);
   const originalLines = source.split("\n");
-  source = stripCobolComments(source);
+  source = cleanSource;
+  const srcOffsets = buildLineOffsets(source);
   const symbols: SymbolNode[] = [moduleSym];
   const scopes: ScopeFrame[] = [];
   const lines = source.split("\n");
@@ -965,7 +988,7 @@ function extractFromCobol(
   const programIdRegex = /PROGRAM-ID\s*\.?\s*(?:IS\s+)?([\w-]+)/gi;
   for (const match of source.matchAll(programIdRegex)) {
     const name = match[1];
-    const lineNum = source.substring(0, match.index!).split("\n").length;
+    const lineNum = offsetToLine(srcOffsets, match.index!);
     currentProgram = name;
     const sym: SymbolNode = {
       id: makeId(file, name, lineNum),
@@ -987,12 +1010,11 @@ function extractFromCobol(
   for (const match of source.matchAll(divisionRegex)) {
     const name = match[1].trim();
     if (COBOL_STATEMENT_RESERVED.has(name.toUpperCase())) continue;
-    const lineNum = source.substring(0, match.index!).split("\n").length;
+    const lineNum = offsetToLine(srcOffsets, match.index!);
     // Find end: next DIVISION or end of file
     let endLine = lines.length;
     for (let i = lineNum; i < lines.length; i++) {
       // i is 1-indexed; lines[] is 0-indexed, so lines[i - 1] is line i.
-      // Skip i === lineNum (the division header itself).
       if (i > lineNum && /^\s*[A-Za-z][\w-]*(?:\s+[A-Za-z][\w-]*)*\s+DIVISION\s*\./i.test(lines[i - 1]!)) {
         endLine = i - 1;
         break;
@@ -1019,12 +1041,13 @@ function extractFromCobol(
   for (const match of source.matchAll(sectionRegex)) {
     const name = match[1];
     if (COBOL_STATEMENT_RESERVED.has(name.toUpperCase())) continue;
-    const lineNum = source.substring(0, match.index!).split("\n").length;
+    const lineNum = offsetToLine(srcOffsets, match.index!);
     // Find end of section: next SECTION or end of file
     let endLine = lines.length;
     for (let i = lineNum; i < lines.length; i++) {
-      if (i > lineNum && /^\s*[A-Za-z][\w-]*\s+SECTION\s*\./i.test(lines[i]!)) {
-        endLine = i;
+      // i is 1-indexed; lines[] is 0-indexed, so lines[i - 1] is line i.
+      if (i > lineNum && /^\s*[A-Za-z][\w-]*\s+SECTION\s*\./i.test(lines[i - 1]!)) {
+        endLine = i - 1;
         break;
       }
     }
@@ -1101,6 +1124,7 @@ function extractFromCobol(
     return { symbols, rawCalls };
   }
   const procSource = lines.slice(procDivStart).join("\n");
+  const procOffsets = buildLineOffsets(procSource);
 
   // 4. PERFORM call detection
   //    PERFORM paragraph-name / PERFORM section-name
@@ -1109,7 +1133,7 @@ function extractFromCobol(
   for (const match of procSource.matchAll(performRegex)) {
     const calleeName = match[1];
     if (COBOL_STATEMENT_RESERVED.has(calleeName.toUpperCase())) continue;
-    const lineNum = procDivStart + procSource.substring(0, match.index!).split("\n").length;
+    const lineNum = procDivStart + offsetToLine(procOffsets, match.index!);
     rawCalls.push({
       callerId: findCallerId(scopes, lineNum, moduleSym.id),
       calleeName,
@@ -1123,7 +1147,7 @@ function extractFromCobol(
   for (const match of procSource.matchAll(performThruRegex)) {
     const calleeName = match[1];
     if (COBOL_STATEMENT_RESERVED.has(calleeName.toUpperCase())) continue;
-    const lineNum = procDivStart + procSource.substring(0, match.index!).split("\n").length;
+    const lineNum = procDivStart + offsetToLine(procOffsets, match.index!);
     rawCalls.push({
       callerId: findCallerId(scopes, lineNum, moduleSym.id),
       calleeName,
@@ -1137,7 +1161,7 @@ function extractFromCobol(
   for (const match of procSource.matchAll(callRegex)) {
     const calleeName = match[1];
     if (COBOL_STATEMENT_RESERVED.has(calleeName.toUpperCase())) continue;
-    const lineNum = procDivStart + procSource.substring(0, match.index!).split("\n").length;
+    const lineNum = procDivStart + offsetToLine(procOffsets, match.index!);
     rawCalls.push({
       callerId: findCallerId(scopes, lineNum, moduleSym.id),
       calleeName,

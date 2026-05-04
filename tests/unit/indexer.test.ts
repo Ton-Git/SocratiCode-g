@@ -367,6 +367,20 @@ describe("indexer utilities", () => {
       const commentChunks = chunks.filter(c => c.type === "comment");
       expect(commentChunks.length).toBeGreaterThanOrEqual(2);
     });
+
+    it("comment chunks do not contain [L42] line-number prefixes", () => {
+      const cobolSource = [
+        "      * FIRST COMMENT LINE",
+        "      * SECOND COMMENT LINE",
+        "       MOVE 1 TO X.",
+      ].join("\n");
+      const chunks = chunkFileContent("/test/code.cbl", "code.cbl", cobolSource);
+      const commentChunks = chunks.filter(c => c.type === "comment");
+      expect(commentChunks.length).toBeGreaterThanOrEqual(1);
+      for (const chunk of commentChunks) {
+        expect(chunk.content).not.toMatch(/\[L\d+\]/);
+      }
+    });
   });
 
   // ── getIndexableFiles (INCLUDE_DOT_FILES) ─────────────────────────────

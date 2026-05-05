@@ -32,6 +32,8 @@
   Kindly sponsored by <a href="https://altaire.com">Altaire Limited</a>
 </p>
 
+> 🛡️ **Need MCP governance together with codebase context?** See our sibling project [**JanuScope**](https://github.com/giancarloerra/januscope) — the local-first MCP policy proxy: tool blocking, SQL-mutation gate, PII redaction, audit, rate-limit.
+
 > If SocratiCode has been useful to you, please ⭐ **star this repo** — it helps others discover it — and share it with your dev team and fellow developers!
 >
 > 💬 Questions or just want to chat? Join us on [Discord](https://discord.gg/5DrMXfNG).
@@ -1141,6 +1143,7 @@ The rest of this section documents the variables themselves. Pass them using whi
 | `QDRANT_GRPC_PORT` | `16334` | Qdrant gRPC port (managed mode only) |
 | `QDRANT_HOST` | `localhost` | Qdrant hostname (alternative to `QDRANT_URL` for non-HTTPS external instances) |
 | `QDRANT_API_KEY` | *(none)* | Qdrant API key (required for Qdrant Cloud and other authenticated deployments). When set, the URL must be `https://...` so the key is not transmitted over plain HTTP. Loopback URLs (`localhost`, `127.0.0.1`, `[::1]`) are accepted on `http://` for local development. |
+| `QDRANT_COLLECTION_PREFIX` | *(empty)* | Optional prefix prepended to every Qdrant collection name SocratiCode creates. Useful when sharing one Qdrant instance with other applications (Open-WebUI, custom RAG, etc.) or running multiple SocratiCode instances against one Qdrant for separation between projects, environments, or per-user indexes. Default empty string keeps collection names unchanged from previous releases (fully backwards compatible). Must match `[a-zA-Z0-9_-]+` if set; an invalid prefix throws at startup. Changing the prefix between runs orphans the previous collections; use `codebase_remove` first if you need to migrate. |
 
 ### Indexing Behaviour
 
